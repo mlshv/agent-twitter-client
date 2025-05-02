@@ -104,6 +104,7 @@ import {
 import {
   fetchMentions,
   NotificationsTimelineTweetResult,
+  ParsedMentionsResponse,
 } from './timeline-notifications';
 
 const twUrl = 'https://twitter.com';
@@ -334,9 +335,7 @@ export class Scraper {
    * @param count The number of tweets to fetch.
    * @returns A promise that resolves to the mentions timeline response.
    */
-  public async fetchMentions(
-    count: number,
-  ): Promise<NotificationsTimelineTweetResult[]> {
+  public async fetchMentions(count: number): Promise<ParsedMentionsResponse> {
     return await fetchMentions(count, this.auth);
   }
 

@@ -1,3 +1,4 @@
+import stringify from 'json-stable-stringify';
 import { requestApi } from './api';
 import { TwitterAuth } from './auth';
 import { ApiError } from './errors';
@@ -444,7 +445,7 @@ interface FeedbackAction {
   value: FeedbackActionValue;
 }
 
-export interface NotificationsTimelineResponse {
+interface NotificationsTimelineResponse {
   data?: {
     viewer_v2: {
       user_results: {
@@ -466,54 +467,56 @@ export interface NotificationsTimelineResponse {
   };
 }
 
+export interface ParsedMentionsResponse {
+  tweets: NotificationsTimelineTweetResult[];
+  next?: string;
+  previous?: string;
+}
+
 function parseMentions(
   timeline: NotificationsTimelineResponse,
-): NotificationsTimelineTweetResult[] {
+): ParsedMentionsResponse {
+  let bottomCursor: string | undefined;
+  let topCursor: string | undefined;
+  const tweets: NotificationsTimelineTweetResult[] = [];
+
   const instructions =
     timeline.data?.viewer_v2.user_results.result.notification_timeline.timeline
-      .instructions;
+      .instructions ?? [];
 
-  if (!instructions) {
-    return [];
-  }
-
-  // Use flatMap to iterate through instructions and their entries, extracting tweet results directly
-  const mentionTweets: NotificationsTimelineTweetResult[] = instructions
-    .flatMap((instruction) => {
-      // Only process 'TimelineAddEntries' instructions that have entries
-      if (instruction.type !== 'TimelineAddEntries' || !instruction.entries) {
-        return []; // Return empty array for flatMap to ignore this instruction
-      }
-
-      // Map over entries, attempting to extract tweet results
-      return instruction.entries.map((entry) => {
-        // Check if the entry content is a TimelineItem containing a TimelineTweet
-        if (
+  for (const instruction of instructions) {
+    if (instruction.type === 'TimelineAddEntries') {
+      const entries = instruction.entries ?? [];
+      for (const entry of entries) {
+        if (entry.content.__typename === 'TimelineTimelineCursor') {
+          if (entry.content.cursorType === 'Bottom') {
+            bottomCursor = entry.content.value;
+          } else if (entry.content.cursorType === 'Top') {
+            topCursor = entry.content.value;
+          }
+        } else if (
           entry.content.__typename === 'TimelineTimelineItem' &&
           entry.content.itemContent?.__typename === 'TimelineTweet'
         ) {
-          // Type assertion is safe here due to the checks above
           const tweetResult = (
             entry.content.itemContent as TimelineItemContentTweet
           ).tweet_results?.result;
-          // Return the tweet result if it exists and is of type 'Tweet'
-          return tweetResult && tweetResult.__typename === 'Tweet'
-            ? tweetResult
-            : null;
+          if (tweetResult && tweetResult.__typename === 'Tweet') {
+            tweets.push(tweetResult);
+          }
         }
-        // Return null if it's not the expected entry type or item type
-        return null;
-      });
-    })
-    // Filter out any nulls that were returned during mapping
-    .filter(
-      (tweet): tweet is NotificationsTimelineTweetResult => tweet != null,
-    );
+      }
+    }
+  }
 
-  return mentionTweets;
+  return { tweets, next: bottomCursor, previous: topCursor };
 }
 
-export async function fetchMentions(count: number, auth: TwitterAuth) {
+export async function fetchMentions(
+  count: number,
+  auth: TwitterAuth,
+  cursor?: string,
+): Promise<ParsedMentionsResponse> {
   const features = {
     rweb_video_screen_enabled: false,
     profile_label_improvements_pcf_label_in_post_enabled: true,
@@ -549,13 +552,26 @@ export async function fetchMentions(count: number, auth: TwitterAuth) {
     responsive_web_enhance_cards_enabled: false,
   };
 
+  if (count > 20) {
+    count = 20;
+  }
+
+  const variables = {
+    timeline_type: 'Mentions',
+    count,
+    cursor,
+  };
+
+  if (cursor != null && cursor != '') {
+    variables['cursor'] = cursor;
+  }
+
+  const params = new URLSearchParams();
+  params.set('features', stringify(features) ?? '');
+  params.set('variables', stringify(variables) ?? '');
+
   const res = await requestApi<NotificationsTimelineResponse>(
-    `https://x.com/i/api/graphql/3L-e1o67sOYxl8xVrZ0W5g/NotificationsTimeline?variables=${JSON.stringify(
-      {
-        timeline_type: 'Mentions',
-        count,
-      },
-    )}&features=${encodeURIComponent(JSON.stringify(features))}`,
+    `https://x.com/i/api/graphql/3L-e1o67sOYxl8xVrZ0W5g/NotificationsTimeline?${params.toString()}`,
     auth,
     'GET',
   );
