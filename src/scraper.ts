@@ -101,6 +101,10 @@ import {
   GrokChatOptions,
   GrokChatResponse,
 } from './grok';
+import {
+  fetchMentions,
+  NotificationsTimelineTweetResult,
+} from './timeline-notifications';
 
 const twUrl = 'https://twitter.com';
 const UserTweetsUrl =
@@ -323,6 +327,17 @@ export class Scraper {
     seenTweetIds: string[],
   ): Promise<any[]> {
     return await fetchHomeTimeline(count, seenTweetIds, this.auth);
+  }
+
+  /**
+   * Fetches the mentions timeline for the current user.
+   * @param count The number of tweets to fetch.
+   * @returns A promise that resolves to the mentions timeline response.
+   */
+  public async fetchMentions(
+    count: number,
+  ): Promise<NotificationsTimelineTweetResult[]> {
+    return await fetchMentions(count, this.auth);
   }
 
   /**
